@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Панель IT-отдела</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+<script src="common.js"></script>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand"><span class="brand-mark">IT</span><span>Панель · <span data-org>IT-отдел</span></span></div>
+    <div class="spacer"></div>
+    <span class="muted" id="updatedAt"></span>
+    <button class="btn ghost small" type="button" id="reloadBtn" hidden>Обновить</button>
+    <button class="btn ghost small" type="button" id="logoutBtn" hidden>Выйти</button>
+    <a href="index.html">Форма заявки</a>
+  </div>
+</header>
+<div class="demo-banner" hidden>
+  <div class="wrap">Демо-режим: пароль <span class="mono">demo</span>, заявки берутся из этого браузера.</div>
+</div>
+
+<main class="wrap">
+
+  <section class="panel login" id="login">
+    <h2>Вход для IT</h2>
+    <p class="lead">Пароль задаётся в настройках Apps Script (свойство ADMIN_KEY).</p>
+    <form id="loginForm">
+      <div class="field">
+        <label for="pass">Пароль</label>
+        <input type="password" id="pass" autocomplete="current-password" required>
+      </div>
+      <p class="error" id="loginError" role="alert" hidden></p>
+      <div class="actions"><button class="btn" type="submit" id="loginBtn">Войти</button></div>
+    </form>
+  </section>
+
+  <section id="board" hidden>
+    <div class="summary" id="summary"></div>
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Поиск: номер, тема, имя, кабинет" aria-label="Поиск">
+      <div class="seg" role="group" aria-label="Сортировка">
+        <button type="button" data-sort="prio" aria-pressed="true">Сначала срочные</button>
+        <button type="button" data-sort="new" aria-pressed="false">Сначала новые</button>
+      </div>
+    </div>
+    <div class="list" id="list"></div>
+  </section>
+
+</main>
+
+<script>
+(function () {
+  const $ = id => document.getElementById(id);
+  const KEY_STORE = 'it-helpdesk-admin';
+  const FILTERS = [
+    { key: 'open', label: 'Открытые', c: '--accent', test: t => t.status !== 'Решена' },
+    { key: 'Новая', label: 'Новые', c: '--st-new', test: t => t.status === 'Новая' },
+    { key: 'В работе', label: 'В работе', c: '--st-work', test: t => t.status === 'В работе' },
+    { key: 'Ждёт', label: 'Ждут ответа', c: '--st-wait', test: t => t.status === 'Ждёт' },
+    { key: 'Решена', label: 'Решены', c: '--st-done', test: t => t.status === 'Решена' },
+  ];
+  const PRIO_RANK = { 'Срочная': 0, 'Обычная': 1, 'Низкая': 2 };
+  const PRIO_COLOR = { 'Срочная': '--pr-high', 'Обычная': '--pr-mid', 'Низкая': '--pr-low' };
+
+  let key = null;
+  try { key = sessionStorage.getItem(KEY_STORE); } catch (e) {}
+  let items = [];
+  let filter = 'open';
+  let sort = 'prio';
+  let openId = null;
+  let timer = null;
+
+  async function load(silent) {
+    try {
+      const res = await IT.api({ action: 'list', key });
+      items = res.items;
+      $('updatedAt').textContent = 'обновлено ' + new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+      render();
+      return true;
+    } catch (e) {
+      if (/парол/i.test(e.message)) { logout(e.message); return false; }
+      if (!silent) $('list').innerHTML = `<div class="empty"><b>Не удалось загрузить заявки</b>${IT.esc(e.message)}</div>`;
+      return false;
+    }
+  }
+
+  function showBoard() {
+    $('login').hidden = true;
+    $('board').hidden = false;
+    $('reloadBtn').hidden = false;
+    $('logoutBtn').hidden = false;
+    clearInterval(timer);
+    timer = setInterval(() => { if (!document.hidden && !openId) load(true); }, 60000);
+  }
+
+  function logout(msg) {
+    key = null;
+    try { sessionStorage.removeItem(KEY_STORE); } catch (e) {}
+    clearInterval(timer);
+    $('board').hidden = true;
+    $('login').hidden = false;
+    $('reloadBtn').hidden = true;
+    $('logoutBtn').hidden = true;
+    $('updatedAt').textContent = '';
+    $('loginError').textContent = msg || '';
+    $('loginError').hidden = !msg;
+  }
+
+  function render() {
+    $('summary').innerHTML = FILTERS.filter(f => f.key !== 'open').map(f => {
+      const n = items.filter(f.test).length;
+      return `<button type="button" class="stat" style="--c: var(${f.c})" data-filter="${f.key}" aria-pressed="${filter === f.key}"><b>${n}</b><span>${f.label}</span></button>`;
+    }).join('');
+
+    const f = FILTERS.find(x => x.key === filter);
+    const q = $('q').value.trim().toLowerCase();
+    let view = items.filter(f.test);
+    if (q) view = view.filter(t => [t.id, t.subject, t.name, t.place, t.category, t.description].join(' ').toLowerCase().includes(q));
+    view.sort((a, b) => sort === 'prio'
+      ? (PRIO_RANK[a.priority] ?? 1) - (PRIO_RANK[b.priority] ?? 1) || new Date(a.created) - new Date(b.created)
+      : new Date(b.created) - new Date(a.created));
+
+    const filterNote = filter === 'open' ? '' :
+      ` <button type="button" class="btn ghost small" data-filter="open">Показать все открытые</button>`;
+
+    if (!view.length) {
+      $('list').innerHTML = items.length
+        ? `<div class="empty"><b>Ничего не найдено</b>В этом списке сейчас нет заявок.${filterNote}</div>`
+        : `<div class="empty"><b>Заявок пока нет</b>Когда сотрудник отправит форму, заявка появится здесь и в Google Таблице.</div>`;
+      return;
+    }
+
+    $('list').innerHTML = (filter !== 'open' ? `<div class="actions" style="margin-bottom:4px"><span class="muted">Фильтр: ${f.label}</span>${filterNote}</div>` : '') +
+      view.map(t => {
+        const isOpen = t.id === openId;
+        return `
+        <article class="ticket ${t.status === 'Решена' ? 'done' : ''} ${isOpen ? 'open' : ''}" style="--c: var(${PRIO_COLOR[t.priority] || '--pr-mid'})">
+          <button type="button" data-open="${IT.esc(t.id)}" aria-expanded="${isOpen}">
+            <span class="no">${IT.esc(t.id)}</span>
+            <span class="subj">${IT.esc(t.subject)}</span>
+            <span class="pill s-${IT.STATUS_CLASS[t.status] || 'new'}">${IT.esc(t.status)}</span>
+            <span class="meta">
+              <span>${IT.esc(t.category)}</span>
+              <span>${IT.esc(t.name)}${t.place ? ', каб. ' + IT.esc(t.place) : ''}</span>
+              <span title="${IT.esc(IT.fmtDate(t.created))}">${IT.ago(t.created)}</span>
+              ${t.priority === 'Срочная' ? '<span style="color:var(--pr-high);font-weight:600">срочно</span>' : ''}
+            </span>
+          </button>
+          ${isOpen ? detail(t) : ''}
+        </article>`;
+      }).join('');
+  }
+
+  function detail(t) {
+    return `
+      <div class="detail">
+        <p class="desc">${IT.esc(t.description)}</p>
+        <dl class="contacts" style="margin:0">
+          <div><dt>Сотрудник</dt><dd>${IT.esc(t.name)}</dd></div>
+          <div><dt>Кабинет</dt><dd>${IT.esc(t.place) || '—'}</dd></div>
+          <div><dt>Телефон</dt><dd>${IT.esc(t.phone) || '—'}</dd></div>
+          <div><dt>Создана</dt><dd>${IT.esc(IT.fmtDate(t.created))}</dd></div>
+        </dl>
+        <div class="field">
+          <span class="legend">Статус</span>
+          <div class="status-btns">
+            ${IT.STATUSES.map(s => `<button type="button" class="s-${IT.STATUS_CLASS[s]}" data-status="${s}" data-id="${IT.esc(t.id)}" aria-pressed="${t.status === s}">${s}</button>`).join('')}
+          </div>
+        </div>
+        <div class="field">
+          <label for="reply-${IT.esc(t.id)}">Ответ сотруднику <span class="hint">· он увидит его на странице заявок</span></label>
+          <textarea id="reply-${IT.esc(t.id)}" maxlength="2000" style="min-height:80px" placeholder="Например: заменил картридж, проверьте печать">${IT.esc(t.reply)}</textarea>
+        </div>
+        <p class="error" id="err-${IT.esc(t.id)}" role="alert" hidden></p>
+        <div class="actions">
+          <button type="button" class="btn small" data-save="${IT.esc(t.id)}">Сохранить ответ</button>
+          <span class="muted" id="ok-${IT.esc(t.id)}"></span>
+        </div>
+      </div>`;
+  }
+
+  async function save(id, patch, btn) {
+    const err = $('err-' + id);
+    if (err) err.hidden = true;
+    if (btn) btn.disabled = true;
+    try {
+      const res = await IT.api(Object.assign({ action: 'update', key, id }, patch));
+      const i = items.findIndex(t => t.id === id);
+      if (i >= 0) items[i] = res.item;
+      // Не перерисовываем всё, если человек ещё печатает ответ.
+      const replyBox = $('reply-' + id);
+      const draft = replyBox && patch.reply === undefined ? replyBox.value : null;
+      render();
+      if (draft !== null && $('reply-' + id)) $('reply-' + id).value = draft;
+      const ok = $('ok-' + id);
+      if (ok) ok.textContent = patch.reply !== undefined ? 'Ответ сохранён' : 'Статус: ' + res.item.status;
+    } catch (e) {
+      if (err) { err.textContent = e.message; err.hidden = false; }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  document.addEventListener('click', e => {
+    const el = e.target.closest('[data-filter],[data-open],[data-status],[data-save],[data-sort]');
+    if (!el) return;
+    if (el.dataset.filter) { filter = el.dataset.filter === filter ? 'open' : el.dataset.filter; render(); }
+    else if (el.dataset.open) { openId = openId === el.dataset.open ? null : el.dataset.open; render(); }
+    else if (el.dataset.status) { save(el.dataset.id, { status: el.dataset.status }, el); }
+    else if (el.dataset.save) { save(el.dataset.save, { reply: $('reply-' + el.dataset.save).value }, el); }
+    else if (el.dataset.sort) {
+      sort = el.dataset.sort;
+      document.querySelectorAll('[data-sort]').forEach(b => b.setAttribute('aria-pressed', b === el));
+      render();
+    }
+  });
+
+  $('q').addEventListener('input', render);
+  $('reloadBtn').addEventListener('click', () => load(false));
+  $('logoutBtn').addEventListener('click', () => logout());
+
+  $('loginForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = $('loginBtn');
+    btn.disabled = true;
+    $('loginError').hidden = true;
+    key = $('pass').value;
+    if (await load(false)) {
+      try { sessionStorage.setItem(KEY_STORE, key); } catch (e) {}
+      $('pass').value = '';
+      showBoard();
+    } else if (key) {
+      $('loginError').textContent = $('loginError').textContent || 'Не удалось войти';
+      $('loginError').hidden = false;
+    }
+    btn.disabled = false;
+  });
+
+  if (key) load(false).then(ok => { if (ok) showBoard(); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Заявка в IT-отдел</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+<script src="common.js"></script>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand"><span class="brand-mark">IT</span><span data-org>IT-отдел</span></div>
+    <div class="spacer"></div>
+    <a href="admin.html">Для IT</a>
+  </div>
+</header>
+<div class="demo-banner" hidden>
+  <div class="wrap">Демо-режим: сайт ещё не подключён к Google Таблице, заявки сохраняются только в этом браузере.</div>
+</div>
+
+<main class="wrap">
+  <div class="layout">
+
+    <section class="panel" id="formPanel">
+      <h2>Новая заявка</h2>
+      <p class="lead">Опишите, что случилось. Вы получите номер заявки и сможете следить за ней на этой странице.</p>
+
+      <form id="form" novalidate>
+        <fieldset>
+          <span class="legend">Что случилось</span>
+          <div class="chips" id="cats"></div>
+        </fieldset>
+
+        <div class="field">
+          <label for="subject">Коротко о проблеме <span class="req">*</span></label>
+          <input type="text" id="subject" maxlength="120" placeholder="Например: не печатает принтер в бухгалтерии" required>
+        </div>
+
+        <div class="field">
+          <label for="description">Подробности <span class="req">*</span>
+            <span class="hint">· что делали, какая ошибка на экране, с какого времени</span></label>
+          <textarea id="description" maxlength="3000" required></textarea>
+        </div>
+
+        <fieldset>
+          <span class="legend">Насколько срочно</span>
+          <div class="prio">
+            <label class="p-low"><input type="radio" name="priority" value="Низкая"><b>Низкая</b><small>Можно в течение недели</small></label>
+            <label class="p-mid"><input type="radio" name="priority" value="Обычная" checked><b>Обычная</b><small>Сегодня или завтра</small></label>
+            <label class="p-high"><input type="radio" name="priority" value="Срочная"><b>Срочная</b><small>Не могу работать</small></label>
+          </div>
+        </fieldset>
+
+        <div class="row">
+          <div class="field">
+            <label for="name">Ваше имя <span class="req">*</span></label>
+            <input type="text" id="name" maxlength="80" autocomplete="name" required>
+          </div>
+          <div class="field">
+            <label for="place">Кабинет</label>
+            <input type="text" id="place" maxlength="60" placeholder="214">
+          </div>
+          <div class="field">
+            <label for="phone">Телефон</label>
+            <input type="tel" id="phone" maxlength="40" placeholder="внутр. 123">
+          </div>
+        </div>
+
+        <p class="error" id="formError" role="alert" hidden></p>
+        <div class="actions">
+          <button class="btn" type="submit" id="submitBtn">Отправить заявку</button>
+        </div>
+      </form>
+
+      <div class="success" id="success" hidden>
+        <span class="muted">Заявка принята. Её номер:</span>
+        <div class="ticket-no" id="newNo"></div>
+        <p class="muted" style="margin:0">Номер сохранён в списке «Мои заявки» справа. Там появится ответ IT-отдела.</p>
+        <button class="btn ghost" type="button" id="againBtn">Отправить ещё одну</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <h3>Мои заявки</h3>
+        <p class="muted" style="margin:0" id="mineNote">Заявки, отправленные с этого компьютера.</p>
+        <ul class="mine" id="mine"></ul>
+        <div class="actions" style="margin-top:14px" id="mineActions" hidden>
+          <button class="btn ghost small" type="button" id="refreshMine">Обновить статусы</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h3>Найти по номеру</h3>
+        <p class="muted" style="margin:0 0 12px">Если отправляли с другого компьютера.</p>
+        <form class="check" id="checkForm">
+          <input type="text" id="checkId" placeholder="IT-0001" aria-label="Номер заявки">
+          <button class="btn small" type="submit">Найти</button>
+        </form>
+        <p class="error" id="checkError" role="alert" hidden style="margin-top:10px"></p>
+      </section>
+
+      <p class="muted" style="margin:0">Сайт не открывается или всё сломалось? Звоните: <span data-fallback></span></p>
+    </aside>
+
+  </div>
+</main>
+
+<script>
+(function () {
+  const CATS = ['Компьютер', 'Принтер', 'Интернет и сеть', 'Почта', 'Программы и 1С', 'Пароль и доступ', 'Телефония', 'Другое'];
+  const MINE_KEY = 'it-helpdesk-mine';
+  const NAME_KEY = 'it-helpdesk-contact';
+  const $ = id => document.getElementById(id);
+
+  $('cats').innerHTML = CATS.map((c, i) =>
+    `<label class="chip"><input type="radio" name="category" value="${c}" ${i === 0 ? 'checked' : ''}><span>${c}</span></label>`).join('');
+
+  // Имя, кабинет и телефон запоминаются, чтобы не вводить их каждый раз.
+  const contact = IT.store(NAME_KEY) || {};
+  ['name', 'place', 'phone'].forEach(k => { if (contact[k]) $(k).value = contact[k]; });
+
+  let mine = IT.store(MINE_KEY) || [];   // [{id, subject, status, reply, updated}]
+
+  function renderMine() {
+    $('mineActions').hidden = mine.length === 0;
+    $('mineNote').textContent = mine.length ? 'Заявки, отправленные с этого компьютера.' : 'Здесь появятся ваши заявки после отправки.';
+    $('mine').innerHTML = mine.map(t => `
+      <li>
+        <div class="head"><span class="mono">${IT.esc(t.id)}</span><span class="pill s-${IT.STATUS_CLASS[t.status] || 'new'}">${IT.esc(t.status || 'Новая')}</span></div>
+        <div class="subj">${IT.esc(t.subject)}</div>
+        ${t.reply ? `<div class="reply"><b>Ответ IT</b>${IT.esc(t.reply)}</div>` : ''}
+        <span class="muted">${t.updated ? 'обновлено ' + IT.ago(t.updated) : ''}</span>
+      </li>`).join('');
+  }
+
+  function upsertMine(item) {
+    const i = mine.findIndex(t => t.id === item.id);
+    const merged = Object.assign({}, mine[i] || {}, item);
+    if (i >= 0) mine[i] = merged; else mine.unshift(merged);
+    mine = mine.slice(0, 20);
+    IT.store(MINE_KEY, mine);
+    renderMine();
+  }
+
+  async function refreshMine() {
+    const btn = $('refreshMine');
+    btn.disabled = true; btn.textContent = 'Обновляю…';
+    for (const t of mine.slice(0, 10)) {
+      try { upsertMine((await IT.api({ action: 'status', id: t.id })).item); } catch (e) { /* заявку могли удалить из таблицы */ }
+    }
+    btn.disabled = false; btn.textContent = 'Обновить статусы';
+  }
+
+  $('refreshMine').addEventListener('click', refreshMine);
+
+  $('form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const err = $('formError');
+    err.hidden = true;
+    const data = {
+      action: 'create',
+      category: document.querySelector('input[name=category]:checked').value,
+      priority: document.querySelector('input[name=priority]:checked').value,
+      subject: $('subject').value.trim(),
+      description: $('description').value.trim(),
+      name: $('name').value.trim(),
+      place: $('place').value.trim(),
+      phone: $('phone').value.trim(),
+    };
+    const missing = [!data.subject && 'тему', !data.description && 'подробности', !data.name && 'имя'].filter(Boolean);
+    if (missing.length) {
+      err.textContent = 'Заполните ' + missing.join(', ') + '.';
+      err.hidden = false;
+      return;
+    }
+    const btn = $('submitBtn');
+    btn.disabled = true; btn.textContent = 'Отправляю…';
+    try {
+      const res = await IT.api(data);
+      IT.store(NAME_KEY, { name: data.name, place: data.place, phone: data.phone });
+      upsertMine({ id: res.id, subject: data.subject, status: 'Новая', reply: '', updated: new Date().toISOString() });
+      $('newNo').textContent = res.id;
+      $('form').hidden = true;
+      $('success').hidden = false;
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.hidden = false;
+    } finally {
+      btn.disabled = false; btn.textContent = 'Отправить заявку';
+    }
+  });
+
+  $('againBtn').addEventListener('click', () => {
+    $('subject').value = ''; $('description').value = '';
+    $('success').hidden = true; $('form').hidden = false;
+    $('subject').focus();
+  });
+
+  $('checkForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const err = $('checkError');
+    err.hidden = true;
+    let id = $('checkId').value.trim().toUpperCase();
+    if (/^\d+$/.test(id)) id = 'IT-' + id.padStart(4, '0');
+    if (!id) return;
+    try {
+      upsertMine((await IT.api({ action: 'status', id })).item);
+      $('checkId').value = '';
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.hidden = false;
+    }
+  });
+
+  renderMine();
+  if (mine.length) refreshMine();
+})();
+</script>
+</body>
+</html>
