@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://script.google.com https://script.googleusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <title>Заявка в IT-отдел</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -72,6 +74,12 @@
           </div>
         </div>
 
+        <!-- Ловушка для ботов: человек это поле не видит. -->
+        <div class="trap" aria-hidden="true">
+          <label for="website">Сайт</label>
+          <input type="text" id="website" tabindex="-1" autocomplete="off">
+        </div>
+
         <p class="error" id="formError" role="alert" hidden></p>
         <div class="actions">
           <button class="btn" type="submit" id="submitBtn">Отправить заявку</button>
@@ -81,7 +89,8 @@
       <div class="success" id="success" hidden>
         <span class="muted">Заявка принята. Её номер:</span>
         <div class="ticket-no" id="newNo"></div>
-        <p class="muted" style="margin:0">Номер сохранён в списке «Мои заявки» справа. Там появится ответ IT-отдела.</p>
+        <div class="muted">Код заявки: <span class="mono" id="newCode" style="color:var(--fg);font-size:16px"></span></div>
+        <p class="muted" style="margin:0">Заявка сохранена в списке «Мои заявки» справа, там появится ответ IT-отдела. Код нужен, чтобы проверить заявку с другого компьютера. Не сообщайте его посторонним.</p>
         <button class="btn ghost" type="button" id="againBtn">Отправить ещё одну</button>
       </div>
     </section>
@@ -98,9 +107,10 @@
 
       <section class="panel">
         <h3>Найти по номеру</h3>
-        <p class="muted" style="margin:0 0 12px">Если отправляли с другого компьютера.</p>
+        <p class="muted" style="margin:0 0 12px">Если отправляли с другого компьютера. Нужны номер и код заявки.</p>
         <form class="check" id="checkForm">
           <input type="text" id="checkId" placeholder="IT-0001" aria-label="Номер заявки">
+          <input type="text" id="checkCode" placeholder="Код" aria-label="Код заявки" maxlength="8" autocomplete="off">
           <button class="btn small" type="submit">Найти</button>
         </form>
         <p class="error" id="checkError" role="alert" hidden style="margin-top:10px"></p>
@@ -112,116 +122,6 @@
   </div>
 </main>
 
-<script>
-(function () {
-  const CATS = ['Компьютер', 'Принтер', 'Интернет и сеть', 'Почта', 'Программы и 1С', 'Пароль и доступ', 'Телефония', 'Другое'];
-  const MINE_KEY = 'it-helpdesk-mine';
-  const NAME_KEY = 'it-helpdesk-contact';
-  const $ = id => document.getElementById(id);
-
-  $('cats').innerHTML = CATS.map((c, i) =>
-    `<label class="chip"><input type="radio" name="category" value="${c}" ${i === 0 ? 'checked' : ''}><span>${c}</span></label>`).join('');
-
-  // Имя, кабинет и телефон запоминаются, чтобы не вводить их каждый раз.
-  const contact = IT.store(NAME_KEY) || {};
-  ['name', 'place', 'phone'].forEach(k => { if (contact[k]) $(k).value = contact[k]; });
-
-  let mine = IT.store(MINE_KEY) || [];   // [{id, subject, status, reply, updated}]
-
-  function renderMine() {
-    $('mineActions').hidden = mine.length === 0;
-    $('mineNote').textContent = mine.length ? 'Заявки, отправленные с этого компьютера.' : 'Здесь появятся ваши заявки после отправки.';
-    $('mine').innerHTML = mine.map(t => `
-      <li>
-        <div class="head"><span class="mono">${IT.esc(t.id)}</span><span class="pill s-${IT.STATUS_CLASS[t.status] || 'new'}">${IT.esc(t.status || 'Новая')}</span></div>
-        <div class="subj">${IT.esc(t.subject)}</div>
-        ${t.reply ? `<div class="reply"><b>Ответ IT</b>${IT.esc(t.reply)}</div>` : ''}
-        <span class="muted">${t.updated ? 'обновлено ' + IT.ago(t.updated) : ''}</span>
-      </li>`).join('');
-  }
-
-  function upsertMine(item) {
-    const i = mine.findIndex(t => t.id === item.id);
-    const merged = Object.assign({}, mine[i] || {}, item);
-    if (i >= 0) mine[i] = merged; else mine.unshift(merged);
-    mine = mine.slice(0, 20);
-    IT.store(MINE_KEY, mine);
-    renderMine();
-  }
-
-  async function refreshMine() {
-    const btn = $('refreshMine');
-    btn.disabled = true; btn.textContent = 'Обновляю…';
-    for (const t of mine.slice(0, 10)) {
-      try { upsertMine((await IT.api({ action: 'status', id: t.id })).item); } catch (e) { /* заявку могли удалить из таблицы */ }
-    }
-    btn.disabled = false; btn.textContent = 'Обновить статусы';
-  }
-
-  $('refreshMine').addEventListener('click', refreshMine);
-
-  $('form').addEventListener('submit', async e => {
-    e.preventDefault();
-    const err = $('formError');
-    err.hidden = true;
-    const data = {
-      action: 'create',
-      category: document.querySelector('input[name=category]:checked').value,
-      priority: document.querySelector('input[name=priority]:checked').value,
-      subject: $('subject').value.trim(),
-      description: $('description').value.trim(),
-      name: $('name').value.trim(),
-      place: $('place').value.trim(),
-      phone: $('phone').value.trim(),
-    };
-    const missing = [!data.subject && 'тему', !data.description && 'подробности', !data.name && 'имя'].filter(Boolean);
-    if (missing.length) {
-      err.textContent = 'Заполните ' + missing.join(', ') + '.';
-      err.hidden = false;
-      return;
-    }
-    const btn = $('submitBtn');
-    btn.disabled = true; btn.textContent = 'Отправляю…';
-    try {
-      const res = await IT.api(data);
-      IT.store(NAME_KEY, { name: data.name, place: data.place, phone: data.phone });
-      upsertMine({ id: res.id, subject: data.subject, status: 'Новая', reply: '', updated: new Date().toISOString() });
-      $('newNo').textContent = res.id;
-      $('form').hidden = true;
-      $('success').hidden = false;
-    } catch (ex) {
-      err.textContent = ex.message;
-      err.hidden = false;
-    } finally {
-      btn.disabled = false; btn.textContent = 'Отправить заявку';
-    }
-  });
-
-  $('againBtn').addEventListener('click', () => {
-    $('subject').value = ''; $('description').value = '';
-    $('success').hidden = true; $('form').hidden = false;
-    $('subject').focus();
-  });
-
-  $('checkForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const err = $('checkError');
-    err.hidden = true;
-    let id = $('checkId').value.trim().toUpperCase();
-    if (/^\d+$/.test(id)) id = 'IT-' + id.padStart(4, '0');
-    if (!id) return;
-    try {
-      upsertMine((await IT.api({ action: 'status', id })).item);
-      $('checkId').value = '';
-    } catch (ex) {
-      err.textContent = ex.message;
-      err.hidden = false;
-    }
-  });
-
-  renderMine();
-  if (mine.length) refreshMine();
-})();
-</script>
+<script src="index.js"></script>
 </body>
 </html>

@@ -1,4 +1,11 @@
 // Общий код для обеих страниц: связь с таблицей и мелкие помощники.
+
+// Не даём открыть сайт внутри чужой страницы (защита от «кликджекинга»).
+if (window.top !== window.self) {
+  document.documentElement.style.display = 'none';
+  try { window.top.location = window.self.location.href; } catch (e) {}
+}
+
 (function () {
   const cfg = window.IT_CONFIG || {};
   const configured = /^https:\/\/script\.google\.com\/.+\/exec$/.test((cfg.API_URL || '').trim());
@@ -32,18 +39,22 @@
     const items = dload();
     const now = new Date().toISOString();
     if (p.action === 'create') {
+      if (p.website) return { ok: true, id: 'IT-0000', code: 'XXXXXXXX' };
       if (!p.subject || !p.description || !p.name) throw new Error('Заполните обязательные поля');
       const id = 'IT-' + String(items.length + 1).padStart(4, '0');
+      const code = Math.random().toString(16).slice(2, 10).toUpperCase().padEnd(8, '0');
       items.push({ id, created: now, status: 'Новая', priority: p.priority, category: p.category,
         subject: p.subject, description: p.description, name: p.name, place: p.place || '',
-        phone: p.phone || '', reply: '', updated: now });
+        phone: p.phone || '', reply: '', updated: now, code });
       dsave(items);
-      return { ok: true, id };
+      return { ok: true, id, code };
     }
     if (p.action === 'status') {
       const t = items.find(x => x.id === String(p.id).trim().toUpperCase());
-      if (!t) throw new Error('Заявка не найдена');
-      return { ok: true, item: t };
+      if (!t || !t.code || t.code !== String(p.code || '').trim().toUpperCase()) {
+        throw new Error('Заявка не найдена. Проверьте номер и код.');
+      }
+      return { ok: true, item: { id: t.id, status: t.status, subject: t.subject, reply: t.reply, created: t.created, updated: t.updated } };
     }
     if (p.key !== DEMO_PASS) throw new Error('Неверный пароль');
     if (p.action === 'list') return { ok: true, items: items.slice().reverse() };

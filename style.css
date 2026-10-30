@@ -167,8 +167,9 @@ fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 8
 /* боковая колонка */
 .side { display: grid; gap: 24px; min-width: 0; }
 .side h3 { font-size: 16px; margin-bottom: 4px; }
-.check { display: flex; gap: 8px; }
+.check { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; gap: 8px; }
 .check input { font-family: var(--font-mono); text-transform: uppercase; }
+.trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 .mine { list-style: none; margin: 16px 0 0; padding: 0; display: grid; gap: 10px; }
 .mine li { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: var(--sunken); display: grid; gap: 4px; min-width: 0; }
 .mine .head { display: flex; gap: 8px; align-items: center; justify-content: space-between; }

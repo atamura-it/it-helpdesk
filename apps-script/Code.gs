@@ -1,5 +1,8 @@
 /**
+ * @OnlyCurrentDoc
+ *
  * Серверная часть сайта заявок: Google Apps Script + Google Таблица.
+ * (@OnlyCurrentDoc: скрипт получает доступ только к своей таблице, а не ко всем.)
  *
  * Пароль для панели IT НЕ пишется в этот файл. Его задают в редакторе
  * Apps Script: Настройки проекта → Свойства скрипта → ADMIN_KEY.
@@ -7,14 +10,17 @@
 
 const SHEET_NAME = 'Заявки';
 const HEADERS = ['Номер', 'Создана', 'Статус', 'Срочность', 'Категория', 'Тема',
-  'Описание', 'Имя', 'Кабинет', 'Телефон', 'Ответ IT', 'Обновлена'];
+  'Описание', 'Имя', 'Кабинет', 'Телефон', 'Ответ IT', 'Обновлена', 'Код'];
 const FIELDS = ['id', 'created', 'status', 'priority', 'category', 'subject',
-  'description', 'name', 'place', 'phone', 'reply', 'updated'];
+  'description', 'name', 'place', 'phone', 'reply', 'updated', 'code'];
 
 const STATUSES = ['Новая', 'В работе', 'Ждёт', 'Решена'];
 const PRIORITIES = ['Низкая', 'Обычная', 'Срочная'];
 const CATEGORIES = ['Компьютер', 'Принтер', 'Интернет и сеть', 'Почта',
   'Программы и 1С', 'Пароль и доступ', 'Телефония', 'Другое'];
+
+// Защита от спама: не больше стольких заявок за 10 минут со всего сайта.
+const MAX_CREATES_PER_10_MIN = 20;
 
 function doGet(e) {
   return json_({ ok: true, service: 'it-helpdesk' });
@@ -26,7 +32,7 @@ function doPost(e) {
   try {
     switch (p.action) {
       case 'create': return json_(create_(p));
-      case 'status': return json_(status_(p.id));
+      case 'status': return json_(status_(p.id, p.code));
       case 'list':   auth_(p.key); return json_({ ok: true, items: list_() });
       case 'update': auth_(p.key); return json_(update_(p));
       default:       return json_({ ok: false, error: 'Неизвестное действие' });
@@ -37,6 +43,9 @@ function doPost(e) {
 }
 
 function create_(p) {
+  // Поле-ловушка: человек его не видит, а бот заполняет. Делаем вид, что всё прошло.
+  if (p.website) return { ok: true, id: 'IT-0000', code: 'XXXXXXXX' };
+
   const subject = clean_(p.subject, 120);
   const description = clean_(p.description, 3000);
   const name = clean_(p.name, 80);
@@ -47,8 +56,10 @@ function create_(p) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
+    rateLimit_();
     const sh = sheet_();
-    const id = 'IT-' + String(sh.getLastRow()).padStart(4, '0');
+    const id = 'IT-' + String(nextNumber_(sh)).padStart(4, '0');
+    const code = Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
     const now = new Date();
     sh.appendRow([
       id, now, 'Новая',
@@ -56,18 +67,22 @@ function create_(p) {
       oneOf_(p.category, CATEGORIES, 'Другое'),
       subject, description, name,
       clean_(p.place, 60), clean_(p.phone, 40),
-      '', now,
+      '', now, code,
     ]);
-    return { ok: true, id: id };
+    return { ok: true, id: id, code: code };
   } finally {
     lock.releaseLock();
   }
 }
 
-// Для сотрудника: только статус и ответ, без чужих контактов.
-function status_(id) {
+// Для сотрудника: только статус и ответ, и только с секретным кодом заявки.
+function status_(id, code) {
   const row = find_(id);
-  if (!row) throw new Error('Заявка не найдена');
+  const given = String(code || '').trim().toUpperCase();
+  if (!row || !row.item.code || given !== row.item.code.toUpperCase()) {
+    Utilities.sleep(1000);
+    throw new Error('Заявка не найдена. Проверьте номер и код.');
+  }
   const t = row.item;
   return { ok: true, item: {
     id: t.id, status: t.status, subject: t.subject, reply: t.reply,
@@ -104,9 +119,38 @@ function sheet_() {
     sh = ss.insertSheet(SHEET_NAME);
     sh.appendRow(HEADERS);
     sh.setFrozenRows(1);
-    sh.getRange(1, 1, 1, HEADERS.length).setFontWeight('bold');
+  }
+  // Таблица, созданная старой версией, ещё без колонки «Код».
+  if (sh.getRange(1, HEADERS.length).getValue() !== HEADERS[HEADERS.length - 1]) {
+    sh.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]).setFontWeight('bold');
   }
   return sh;
+}
+
+// Номера не зависят от числа строк, поэтому после удаления строки они не повторяются.
+function nextNumber_(sh) {
+  const props = PropertiesService.getScriptProperties();
+  let n = Number(props.getProperty('NEXT_ID'));
+  if (!n) {
+    // Первый запуск: продолжаем после самого большого номера в таблице.
+    const ids = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), 1).getValues().flat();
+    n = ids.reduce((max, v) => {
+      const m = /^IT-(\d+)$/i.exec(String(v));
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0) + 1;
+  }
+  props.setProperty('NEXT_ID', String(n + 1));
+  return n;
+}
+
+function rateLimit_() {
+  const cache = CacheService.getScriptCache();
+  const key = 'creates-' + Math.floor(Date.now() / 600000);
+  const count = Number(cache.get(key) || 0);
+  if (count >= MAX_CREATES_PER_10_MIN) {
+    throw new Error('Сейчас слишком много заявок. Попробуйте через 10 минут или позвоните в IT-отдел.');
+  }
+  cache.put(key, String(count + 1), 900);
 }
 
 function find_(id) {
@@ -128,7 +172,10 @@ function toItem_(r) {
 function auth_(key) {
   const real = PropertiesService.getScriptProperties().getProperty('ADMIN_KEY');
   if (!real) throw new Error('Пароль не задан: добавьте свойство ADMIN_KEY в настройках скрипта');
-  if (String(key || '') !== real) throw new Error('Неверный пароль');
+  if (String(key || '') !== real) {
+    Utilities.sleep(2000); // замедляет подбор пароля
+    throw new Error('Неверный пароль');
+  }
 }
 
 function clean_(v, max) {
