@@ -9,7 +9,8 @@
 <title>Панель IT-отдела</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script src="config.js"></script>
 <script src="common.js"></script>
@@ -17,13 +18,18 @@
 <body>
 
 <header class="top">
-  <div class="wrap">
-    <div class="brand"><span class="brand-mark">IT</span><span>Панель · <span data-org>IT-отдел</span></span></div>
-    <div class="spacer"></div>
-    <span class="muted" id="updatedAt"></span>
-    <button class="btn ghost small" type="button" id="reloadBtn" hidden>Обновить</button>
-    <button class="btn ghost small" type="button" id="logoutBtn" hidden>Выйти</button>
-    <a href="index.html">Форма заявки</a>
+  <div class="wrap top-grid">
+    <span class="top-title">Панель · <span data-org>IT-отдел</span></span>
+    <div class="brand">
+      <img class="brand-logo" src="logo.svg" alt="" width="36" height="36">
+      <span class="wordmark"><b>ATAMŪRA</b><small>Group</small></span>
+    </div>
+    <div class="top-right">
+      <span class="muted" id="updatedAt"></span>
+      <button class="btn ghost small" type="button" id="reloadBtn" hidden>Обновить</button>
+      <button class="btn ghost small" type="button" id="logoutBtn" hidden>Выйти</button>
+      <a href="index.html">Форма заявки</a>
+    </div>
   </div>
 </header>
 <div class="demo-banner" hidden>
