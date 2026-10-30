@@ -34,7 +34,7 @@
 API_URL: 'https://script.google.com/macros/s/....../exec',
 ```
 
-Там же можно поменять `ORG_NAME` (подпись в шапке) и `FALLBACK_CONTACT` (куда звонить, если сайт не работает).
+Там же можно поменять `ORG_NAME` (подпись в шапке).
 
 ## Шаг 3. Опубликовать на GitHub Pages
 

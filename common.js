@@ -106,8 +106,6 @@ if (window.top !== window.self) {
   };
 
   document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('[data-org]').forEach(el => { el.textContent = cfg.ORG_NAME || 'IT-отдел'; });
-    document.querySelectorAll('[data-fallback]').forEach(el => { el.textContent = cfg.FALLBACK_CONTACT || ''; });
-    if (!configured) document.querySelectorAll('.demo-banner').forEach(el => { el.hidden = false; });
+    document.querySelectorAll('[data-org]').forEach(el => { el.textContent = cfg.ORG_NAME || 'IT-отдел'; });    if (!configured) document.querySelectorAll('.demo-banner').forEach(el => { el.hidden = false; });
   });
 })();
